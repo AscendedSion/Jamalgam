@@ -1,6 +1,6 @@
 <div align="center">
   
-  Jamalgam
+  Jamalgam,
   a fork of the project "Amalgam"
   ##
 
