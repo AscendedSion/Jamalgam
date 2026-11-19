@@ -66,7 +66,7 @@ void CMenu::DrawMenu()
 
 			SetCursorPos({ H::Draw.Scale(12), H::Draw.Scale(11) });
 			PushStyleColor(ImGuiCol_Text, F::Render.Accent.Value);
-			FText(TruncateText(Vars::Menu::CheatTitle.Value, flSize - H::Draw.Scale(28), F::Render.FontBold).c_str(), {}, 0, F::Render.FontBold);
+			FText(TruncateText("Jamalgam", flSize - H::Draw.Scale(28), F::Render.FontBold).c_str(), {}, 0, F::Render.FontBold);
 			PopStyleColor();
 		}
 		else
@@ -80,12 +80,12 @@ void CMenu::DrawMenu()
 		PushFont(F::Render.FontBold);
 		FTabs(
 			{
-				{ "AIMBOT", "GENERAL", "DRAW" },
-				{ "HVH" },
-				{ "VISUALS", "ESP", "MISC##", "MENU" },
-				{ "MISC" },
-				{ "LOGS", "PLAYERLIST", "SETTINGS##", "OUTPUT" },
-				{ "SETTINGS", "CONFIG", "BINDS", "MATERIALS", "MISC##" }
+				{ "Aimbot", "General", "Draw" },
+				{ "HvH" },
+				{ "Visuals", "Esp", "Misc##", "Ui" },
+				{ "Misc" },
+				{ "Logs", "Players", "Settings##", "Output" },
+				{ "Settings", "Config", "Binds", "Materials", "Misc##" }
 			},
 			{ &iTab, &iAimbotTab, nullptr, &iVisualsTab, nullptr, &iLogsTab, &iSettingsTab },
 			{ flSize - H::Draw.Scale(16), H::Draw.Scale(36) },
@@ -257,6 +257,7 @@ void CMenu::MenuAimbot(int iTab)
 					FDropdown(Vars::Aimbot::Hitscan::MultipointHitboxes, FDropdownEnum::Right);
 					FDropdown(Vars::Aimbot::Hitscan::Modifiers);
 					FSlider(Vars::Aimbot::Hitscan::MultipointScale);
+					FToggle(Vars::Aimbot::Hitscan::Extrapolate, FToggleEnum::None, &Hovered); FTooltip("Leads a player by our latency so the shot lands where he will be rather than where he was. Only used when no rewind record can be hit, so it never overrides a working backtrack", Hovered);
 					PushTransparent(!(Vars::Aimbot::Hitscan::Modifiers.Value & Vars::Aimbot::Hitscan::ModifiersEnum::Tapfire));
 					{
 						FSlider(Vars::Aimbot::Hitscan::TapfireDistance);
@@ -272,6 +273,7 @@ void CMenu::MenuAimbot(int iTab)
 						{
 							FDropdown(Vars::Aimbot::Hitscan::PeekCheck, FDropdownEnum::None, 0, &Hovered); FTooltip("This should stay as doubletap only or off if you want to be able to target hitboxes other than the highest priority one", Hovered);
 							FSlider(Vars::Aimbot::Hitscan::PeekAmount);
+							FSlider(Vars::Aimbot::Hitscan::ExtrapolateMax);
 							FSlider(Vars::Aimbot::Hitscan::BoneSizeSubtract);
 							FSlider(Vars::Aimbot::Hitscan::BoneSizeMinimumScale);
 

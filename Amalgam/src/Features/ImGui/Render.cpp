@@ -89,10 +89,10 @@ void CRender::LoadFonts()
 	ImFontConfig tFontConfig;
 	tFontConfig.OversampleH = 2;
 #ifndef AMALGAM_CUSTOM_FONTS
-	FontSmall = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\verdana.ttf)", H::Draw.Scale(11), &tFontConfig);
-	FontRegular = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\verdana.ttf)", H::Draw.Scale(13), &tFontConfig);
-	FontBold = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\verdanab.ttf)", H::Draw.Scale(13), &tFontConfig);
-	FontLarge = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\verdana.ttf)", H::Draw.Scale(14), &tFontConfig);
+	FontSmall = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\tahoma.ttf)", H::Draw.Scale(11), &tFontConfig);
+	FontRegular = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\tahoma.ttf)", H::Draw.Scale(13), &tFontConfig);
+	FontBold = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\tahomabd.ttf)", H::Draw.Scale(13), &tFontConfig);
+	FontLarge = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\tahoma.ttf)", H::Draw.Scale(14), &tFontConfig);
 	FontMono = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\cour.ttf)", H::Draw.Scale(16), &tFontConfig); // windows mono font installed by default
 #else
 	FontSmall = io.Fonts->AddFontFromMemoryCompressedTTF(RobotoMedium_compressed_data, RobotoMedium_compressed_size, H::Draw.Scale(12), &tFontConfig);
@@ -118,19 +118,19 @@ void CRender::LoadStyle()
 	style.ButtonTextAlign = { 0.5f, 0.5f };
 	style.CellPadding = { H::Draw.Scale(4), 0 };
 	style.ChildBorderSize = 0.f;
-	style.ChildRounding = H::Draw.Scale(4);
+	style.ChildRounding = H::Draw.Scale(0);
 	style.FrameBorderSize = 0.f;
 	style.FramePadding = { 0, 0 };
-	style.FrameRounding = H::Draw.Scale(4);
+	style.FrameRounding = H::Draw.Scale(0);
 	style.ItemInnerSpacing = { 0, 0 };
 	style.ItemSpacing = { H::Draw.Scale(8), H::Draw.Scale(8) };
 	style.PopupBorderSize = 0.f;
-	style.PopupRounding = H::Draw.Scale(4);
+	style.PopupRounding = H::Draw.Scale(0);
 	style.ScrollbarSize = 6.f + H::Draw.Scale(3);
 	style.ScrollbarRounding = 0.f;
 	style.WindowBorderSize = 0.f;
 	style.WindowPadding = { 0, 0 };
-	style.WindowRounding = H::Draw.Scale(4);
+	style.WindowRounding = H::Draw.Scale(0);
 }
 
 void CRender::Initialize(IDirect3DDevice9* pDevice)

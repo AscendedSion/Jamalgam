@@ -753,6 +753,8 @@ void CESP::DrawPlayers()
 		return;
 
 	const auto& fFont = H::Fonts.GetFont(FONT_ESP);
+	const auto& fFontSmall = H::Fonts.GetFont(FONT_ESP_SMALL);
+	const int nTall2 = fFontSmall.m_nTall + H::Draw.Scale(2);
 	const int nTall = fFont.m_nTall + H::Draw.Scale(2);
 	for (auto& [pEntity, tCache] : m_mPlayerCache)
 	{
@@ -801,6 +803,7 @@ void CESP::DrawPlayers()
 		{
 			auto fDrawBar = [&](int x, int y, int w, int h, EAlign eAlign = ALIGN_LEFT)
 			{
+					H::Draw.FillRect(x, y, w, h, {0,0,0,140});
 				if (flPercent > 1.f)
 				{
 					H::Draw.FillRectPercent(x, y, w, h, 1.f, tColor, { 0, 0, 0, 255 }, eAlign, bAdjust);
@@ -834,18 +837,29 @@ void CESP::DrawPlayers()
 				tOffset += nTall;
 				break;
 			case ALIGN_BOTTOM:
-				H::Draw.StringOutlined(fFont, m, b + bOffset, tColor, tOutline, ALIGN_TOP, sText.c_str());
-				bOffset += nTall;
+			{
+				std::string sUpper = sText;
+				std::transform(sUpper.begin(), sUpper.end(), sUpper.begin(),
+					[](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+
+				H::Draw.StringOutlined(fFontSmall, m, b + bOffset, tColor, tOutline, ALIGN_TOP, sUpper.c_str());
+				bOffset += nTall2;
 				break;
+			}
 			case ALIGN_LEFT:
-				H::Draw.StringOutlined(fFont, l - lOffset, y - H::Draw.Scale(2) + h - h * std::min(tCache.m_flHealth, 1.f), tColor, tOutline, ALIGN_TOPRIGHT, sText.c_str());
+				H::Draw.StringOutlined(fFontSmall, l - lOffset, y - H::Draw.Scale(2) + h - h * std::min(tCache.m_flHealth, 1.f), tColor, tOutline, ALIGN_TOPRIGHT, sText.c_str());
 				break;
-			case ALIGN_TOPRIGHT:
-				H::Draw.StringOutlined(fFont, r, y - H::Draw.Scale(2) + rOffset, tColor, tOutline, ALIGN_TOPLEFT, sText.c_str());
-				rOffset += nTall;
+			case ALIGN_TOPRIGHT: {
+				std::string sUpper = sText;
+				std::transform(sUpper.begin(), sUpper.end(), sUpper.begin(),
+					[](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+
+				H::Draw.StringOutlined(fFontSmall, r, y - H::Draw.Scale(2) + rOffset, tColor, tOutline, ALIGN_TOPLEFT, sUpper.c_str());
+				rOffset += nTall2;
 				break;
+			}
 			case ALIGN_BOTTOMRIGHT:
-				H::Draw.StringOutlined(fFont, r, y + h, tColor, tOutline, ALIGN_TOPLEFT, sText.c_str());
+				H::Draw.StringOutlined(fFontSmall, r, y + h, tColor, tOutline, ALIGN_TOPLEFT, sText.c_str());
 				break;
 			}
 		}

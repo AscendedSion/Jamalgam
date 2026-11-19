@@ -424,18 +424,13 @@ void CTicks::Draw(CTFPlayer* pLocal)
 	float flRatio = float(iTicks) / float(iMax);
 	int iSizeX = H::Draw.Scale(100, Scale_Round), iSizeY = H::Draw.Scale(12, Scale_Round);
 	int iPosX = dtPos.x - iSizeX / 2, iPosY = dtPos.y + fFont.m_nTall + H::Draw.Scale(4) + 1;
+	Color_t textcol = Vars::Menu::Theme::Active.Value;
 
-	H::Draw.StringOutlined(fFont, dtPos.x, dtPos.y + 2, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOP, std::format("Ticks {} / {}", iTicks, iMax).c_str());
+	H::Draw.StringOutlined(fFont, dtPos.x, dtPos.y + 2, textcol, Vars::Menu::Theme::Background.Value, ALIGN_TOP, std::format("DOUBLETAP {} / {}", iTicks, iMax).c_str());
 	if (m_iWait)
-		H::Draw.StringOutlined(fFont, dtPos.x, dtPos.y + fFont.m_nTall + H::Draw.Scale(18, Scale_Round) + 1, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOP, "Not Ready");
-
-	H::Draw.LineRoundRect(iPosX, iPosY, iSizeX, iSizeY, H::Draw.Scale(4, Scale_Round), Vars::Menu::Theme::Accent.Value, 16);
-	if (flRatio)
-	{
-		iSizeX -= H::Draw.Scale(2, Scale_Ceil) * 2, iSizeY -= H::Draw.Scale(2, Scale_Ceil) * 2;
-		iPosX += H::Draw.Scale(2, Scale_Round), iPosY += H::Draw.Scale(2, Scale_Round);
-		H::Draw.StartClipping(iPosX, iPosY, iSizeX * flRatio, iSizeY);
-		H::Draw.FillRoundRect(iPosX, iPosY, iSizeX, iSizeY, H::Draw.Scale(3, Scale_Round), Vars::Menu::Theme::Accent.Value, 16);
-		H::Draw.EndClipping();
-	}
+		textcol = Vars::Menu::Theme::Inactive.Value;
+	else if (m_bRecharge)
+		textcol = Vars::Colors::IndicatorTextMid.Value;
+	else if (iTicks >= iMax)
+		textcol = Vars::Colors::IndicatorTextGood.Value;
 }

@@ -379,6 +379,52 @@ std::vector<Vec3> CAimbotHitscan::GetHitboxPoints(CBaseEntity* pTarget, CTFWeapo
 	return vPoints;
 }
 
+int CAimbotHitscan::GetExtrapolateTicks()
+{
+	// how far ahead of what we can see the shot lands: our round trip, the choke we sit on,
+	// and the interp we force on top of it
+	float flLead = F::Backtrack.GetReal(MAX_FLOWS, false) + TICKS_TO_TIME(F::Backtrack.GetAnticipatedChoke()) + F::Backtrack.GetFakeInterp();
+
+	return std::clamp(TIME_TO_TICKS(flLead), 0, std::max(Vars::Aimbot::Hitscan::ExtrapolateMax.Value, 0));
+}
+
+bool CAimbotHitscan::Extrapolate(TickRecord& tRecord, TickRecord* pFrom, CBaseEntity* pTarget)
+{
+	if (!pFrom || !pTarget || !pTarget->IsPlayer())
+		return false;
+
+	const int iTicks = GetExtrapolateTicks();
+	if (!iTicks)
+		return false;
+
+	// walk the target forward the same way the projectile aimbot walks its targets
+	MoveStorage tMoveStorage = {};
+	if (!F::MoveSim.Initialize(pTarget, tMoveStorage, false, true, false) || tMoveStorage.m_bFailed)
+	{
+		F::MoveSim.Restore(tMoveStorage);
+		return false;
+	}
+	for (int i = 0; i < iTicks; i++)
+		F::MoveSim.RunTick(tMoveStorage, false);
+	Vec3 vOrigin = tMoveStorage.m_MoveData.m_vecAbsOrigin;
+	F::MoveSim.Restore(tMoveStorage);
+
+	const Vec3 vDelta = vOrigin - pFrom->m_vOrigin;
+	if (vDelta.LengthSqr() < 1.f)
+		return false; // standing still, the newest record already is the pose
+
+	// the bones belong to where the target was, so the pose is carried over by the same delta.
+	// only the position is extrapolated, the animation itself does not advance in the lead
+	tRecord = *pFrom;
+	tRecord.m_flSimTime = pFrom->m_flSimTime + TICKS_TO_TIME(iTicks);
+	tRecord.m_vOrigin = vOrigin;
+	tRecord.m_bOnShot = false;
+	for (auto& aBone : tRecord.m_aBones)
+		aBone[0][3] += vDelta.x, aBone[1][3] += vDelta.y, aBone[2][3] += vDelta.z;
+
+	return true;
+}
+
 int CAimbotHitscan::CanHit(Target_t& tTarget, CTFPlayer* pLocal, CTFWeaponBase* pWeapon)
 {
 	if (Vars::Aimbot::General::Ignore.Value & Vars::Aimbot::General::IgnoreEnum::Unsimulated && H::Entities.GetChoke(tTarget.m_pEntity->entindex()) > Vars::Aimbot::General::TickTolerance.Value)
@@ -443,14 +489,16 @@ int CAimbotHitscan::CanHit(Target_t& tTarget, CTFPlayer* pLocal, CTFWeaponBase* 
 	float flBoneScale = std::max(Vars::Aimbot::Hitscan::BoneSizeMinimumScale.Value, Vars::Aimbot::Hitscan::MultipointScale.Value / 100.f);
 	float flBoneSubtract = Vars::Aimbot::Hitscan::BoneSizeSubtract.Value;
 	float flModelScale = 1.f;
-	Vec3 vMins, vMaxs, vHullMins, vHullMaxs;
-	const matrix3x4* pTransform = &m_mMatrix, *pHullTransform = nullptr;
+	Vec3 vHullMins, vHullMaxs;
 
 	GetHullInfo(tTarget.m_pEntity, nullptr, nullptr, &vHullMins, &vHullMaxs, &flModelScale);
-	for (auto pRecord : vRecords)
+
+	auto ScanRecord = [&](TickRecord* pRecord) -> bool
 	{
 		bool bRunPeekCheck = vPeekPos.has_value();
 		auto aBones = pRecord->m_aBones;
+		Vec3 vMins, vMaxs;
+		const matrix3x4* pTransform = &m_mMatrix, *pHullTransform = nullptr;
 
 		GetHullInfo(tTarget.m_pEntity, bPlayer && !bWrangler ? pRecord : nullptr, &pHullTransform);
 		for (auto& tHitbox : vHitboxes)
@@ -473,7 +521,7 @@ int CAimbotHitscan::CanHit(Target_t& tTarget, CTFPlayer* pLocal, CTFWeaponBase* 
 				{
 					bRunPeekCheck = false;
 					if (!SDK::VisPos(pLocal, tTarget.m_pEntity, *vPeekPos, vOrigin))
-						goto skip; // if we can't hit our primary hitbox, don't bother
+						return false; // if we can't hit our primary hitbox, don't bother
 				}
 
 				Vec3 vAngles; bool bChanged = Aim(G::CurrentUserCmd->viewangles, Math::CalcAngle(m_vEyePos, vOrigin), vAngles);
@@ -506,8 +554,21 @@ int CAimbotHitscan::CanHit(Target_t& tTarget, CTFPlayer* pLocal, CTFWeaponBase* 
 			}
 		}
 
-		skip: continue;
+		return false;
+	};
+
+	for (auto pRecord : vRecords)
+	{
+		if (ScanRecord(pRecord))
+			return true;
 	}
+
+	// nothing in the target's history can be hit, so lead him instead of settling for the miss.
+	// the extrapolated pose is a fallback and never overrides a record we can actually hit
+	if (Vars::Aimbot::Hitscan::Extrapolate.Value && bPlayer && !bWrangler
+		&& Extrapolate(m_tExtrapolatedRecord, vRecords.front(), tTarget.m_pEntity)
+		&& ScanRecord(&m_tExtrapolatedRecord))
+		return true;
 
 	return iReturn;
 }
