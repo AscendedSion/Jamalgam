@@ -15,6 +15,12 @@ struct MoveStorage
 	float m_flAverageYaw = 0.f;
 	bool m_bBunnyHop = false;
 
+	// strafe phase prediction, used when a player keeps reversing their strafe direction
+	float m_flStrafeYaw = 0.f; // signed turn rate of the current strafe phase
+	int m_iStrafeHalfPeriod = 0; // estimated ticks per strafe phase, 0 when it couldn't be measured
+	int m_iStrafeRemaining = 0; // ticks left before the phase flips, or before an unmeasured phase stops being extrapolated
+	int m_iInputSign = 0; // sign the stored move inputs were rotated by to predict the current strafe
+
 	float m_flSimTime = 0.f;
 	float m_flPredictedDelta = 0.f;
 	float m_flPredictedSimTime = 0.f;

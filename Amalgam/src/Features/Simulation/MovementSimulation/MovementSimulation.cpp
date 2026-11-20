@@ -3,6 +3,21 @@
 #include "../../EnginePrediction/EnginePrediction.h"
 #include <numeric>
 
+// default cl_forwardspeed/cl_sidespeed value, used to represent the movement inputs of players whose real inputs aren't networked
+static constexpr float MOVE_INPUT_SPEED = 450.f;
+// maximum number of ticks of movement history used to measure the current strafe phase
+static constexpr int STRAFE_PHASE_WINDOW = 33;
+// maximum direction change of a single movement sample, degrees
+static constexpr float STRAFE_MAX_SAMPLE_YAW = 45.f;
+// minimum turn rate that is considered a strafe, degrees per tick
+static constexpr float STRAFE_MIN_YAW = 0.36f;
+// maximum turn rate applied for a single strafe phase, degrees per tick
+static constexpr float STRAFE_MAX_YAW = 15.f;
+// maximum number of ticks a strafe phase is extrapolated for when its period couldn't be measured
+static constexpr int STRAFE_UNKNOWN_PERIOD_TICKS = 8;
+// maximum number of stored records inspected when measuring the current strafe phase
+static constexpr int STRAFE_PHASE_RECORDS = 66;
+
 void CMovementSimulation::Store(MoveStorage& tMoveStorage)
 {
 	auto pMap = tMoveStorage.m_pPlayer->GetPredDescMap();
@@ -120,7 +135,9 @@ void CMovementSimulation::Store()
 
 		Vec3 vVelocity = pPlayer->m_vecVelocity();
 		Vec3 vOrigin = pPlayer->m_vecOrigin();
-		Vec3 vDirection = vVelocity.To2D();
+		// the real input of a networked player is unknown, so keep the direction implied by their velocity but
+		// represent the input with a consistent move speed instead of the (arbitrary) current speed
+		Vec3 vDirection = vVelocity.Normalized2D() * MOVE_INPUT_SPEED;
 
 		MoveData* pLastRecord = !vRecords.empty() ? &vRecords.front() : nullptr;
 		vRecords.emplace_front(
@@ -331,7 +348,7 @@ static inline float GetFrictionScale(float flVelocityXY, float flTurn, float flV
 		return 1.f;
 
 	static auto sv_airaccelerate = H::ConVars.FindVar("sv_airaccelerate");
-	float flScale = std::max(sv_airaccelerate->GetFloat(), 1.f);
+	float flScale = std::max(sv_airaccelerate ? sv_airaccelerate->GetFloat() : 1.f, 1.f);
 	flMin *= flScale, flMax *= flScale;
 
 	// entity friction will be 0.25f if velocity is between 0.f and 250.f
@@ -368,45 +385,53 @@ static inline void VisualizeRecords(MoveData& tRecord1, MoveData& tRecord2, Colo
 }
 #endif
 
-static inline bool GetYawDifference(MoveData& tRecord1, MoveData& tRecord2, bool bStart, float* pYaw, float flStraightFuzzyValue, int iMaxChanges = 0, int iMaxChangeTime = 0, float flMaxSpeed = 0.f)
+struct YawDiffState
+{
+	int m_iChanges = 0;
+	int m_iStartTick = 0;
+	int m_iLastSign = 0;
+	bool m_bLastZero = false;
+};
+
+// direction change of a single movement sample, normalized to its stored tick count by the caller
+static inline float GetStrafeYaw(MoveData& tRecord1, MoveData& tRecord2, float flMaxSpeed, int& iTicks)
 {
 	const float flYaw1 = Math::VectorAngles(tRecord1.m_vDirection).y, flYaw2 = Math::VectorAngles(tRecord2.m_vDirection).y;
-	const float flTime1 = tRecord1.m_flSimTime, flTime2 = tRecord2.m_flSimTime;
-	const int iTicks = std::max(TIME_TO_TICKS(flTime1 - flTime2), 1);
+	iTicks = std::max(TIME_TO_TICKS(tRecord1.m_flSimTime - tRecord2.m_flSimTime), 1);
 
-	*pYaw = Math::NormalizeAngle(flYaw1 - flYaw2);
+	float flYaw = Math::NormalizeAngle(flYaw1 - flYaw2);
 	if (flMaxSpeed && tRecord1.m_iMode != MoveEnum::Air)
-		*pYaw *= std::clamp(tRecord1.m_vVelocity.Length2D() / flMaxSpeed, 0.f, 1.f);
-	if (Vars::Aimbot::Projectile::MovesimFrictionFlags.Value & Vars::Aimbot::Projectile::MovesimFrictionFlagsEnum::CalculateIncrease && tRecord1.m_iMode == 1)
-		*pYaw /= GetFrictionScale(tRecord1.m_vVelocity.Length2D(), *pYaw, tRecord1.m_vVelocity.z + SDK::GetGravity() * TICK_INTERVAL, 0.f, 56.f);
-	if (fabsf(*pYaw) > 45.f)
+		flYaw *= std::clamp(tRecord1.m_vVelocity.Length2D() / flMaxSpeed, 0.f, 1.f);
+	if (Vars::Aimbot::Projectile::MovesimFrictionFlags.Value & Vars::Aimbot::Projectile::MovesimFrictionFlagsEnum::CalculateIncrease && tRecord1.m_iMode == MoveEnum::Air)
+		flYaw /= GetFrictionScale(tRecord1.m_vVelocity.Length2D(), flYaw, tRecord1.m_vVelocity.z + SDK::GetGravity() * TICK_INTERVAL, 0.f, 56.f);
+	return flYaw;
+}
+
+static inline bool GetYawDifference(MoveData& tRecord1, MoveData& tRecord2, bool bStart, float flYaw, int iTicks, float flStraightFuzzyValue, YawDiffState& tState, int iMaxChanges = 0, int iMaxChangeTime = 0)
+{
+	if (fabsf(flYaw) > STRAFE_MAX_SAMPLE_YAW)
 		return false;
 
-	static int iChanges, iStart;
+	const int iLastSign = tState.m_iLastSign;
+	const bool bLastZero = tState.m_bLastZero;
+	const int iCurrSign = tState.m_iLastSign = flYaw ? sign(flYaw) : tState.m_iLastSign;
+	const bool bCurrZero = tState.m_bLastZero = !flYaw;
 
-	static int iStaticSign = 0;
-	const int iLastSign = iStaticSign;
-	const int iCurrSign = iStaticSign = *pYaw ? sign(*pYaw) : iStaticSign;
-
-	static bool bStaticZero = false;
-	const bool iLastZero = bStaticZero;
-	const bool iCurrZero = bStaticZero = !*pYaw;
-
-	const bool bChanged = iCurrSign != iLastSign || iCurrZero && iLastZero;
-	const bool bStraight = fabsf(*pYaw) * tRecord1.m_vVelocity.Length2D() * iTicks < flStraightFuzzyValue; // dumb way to get straight bool
+	const bool bChanged = iCurrSign != iLastSign || bCurrZero && bLastZero;
+	const bool bStraight = fabsf(flYaw) * tRecord1.m_vVelocity.Length2D() * iTicks < flStraightFuzzyValue; // dumb way to get straight bool
 
 	if (bStart)
 	{
-		iChanges = 0, iStart = TIME_TO_TICKS(flTime1);
-		if (bStraight && ++iChanges > iMaxChanges)
+		tState.m_iChanges = 0, tState.m_iStartTick = TIME_TO_TICKS(tRecord1.m_flSimTime);
+		if (bStraight && ++tState.m_iChanges > iMaxChanges)
 			return false;
 		return true;
 	}
 	else
 	{
-		if ((bChanged || bStraight) && ++iChanges > iMaxChanges)
+		if ((bChanged || bStraight) && ++tState.m_iChanges > iMaxChanges)
 			return false;
-		return iChanges && iStart - TIME_TO_TICKS(flTime2) > iMaxChangeTime ? false : true;
+		return tState.m_iChanges && tState.m_iStartTick - TIME_TO_TICKS(tRecord2.m_flSimTime) > iMaxChangeTime ? false : true;
 	}
 }
 
@@ -415,6 +440,13 @@ void CMovementSimulation::GetAverageYaw(MoveStorage& tMoveStorage, int iSamples)
 	auto pPlayer = tMoveStorage.m_pPlayer;
 	bool bLocal = pPlayer->entindex() == I::EngineClient->GetLocalPlayer();
 	auto& vRecords = m_mRecords[pPlayer->entindex()];
+
+	// prediction state is rebuilt from the current movement history every time
+	tMoveStorage.m_flAverageYaw = 0.f;
+	tMoveStorage.m_flStrafeYaw = 0.f;
+	tMoveStorage.m_iStrafeHalfPeriod = tMoveStorage.m_iStrafeRemaining = 0;
+	tMoveStorage.m_iInputSign = 0;
+
 	if (vRecords.empty())
 		return;
 
@@ -425,7 +457,9 @@ void CMovementSimulation::GetAverageYaw(MoveStorage& tMoveStorage, int iSamples)
 	float flHighMinimumDistance = bGround ? Vars::Aimbot::Projectile::GroundHighMinimumDistance.Value : Vars::Aimbot::Projectile::AirHighMinimumDistance.Value;
 	float flHighMinimumSamples = bGround ? Vars::Aimbot::Projectile::GroundHighMinimumSamples.Value : Vars::Aimbot::Projectile::AirHighMinimumSamples.Value;
 
-	float flAverageYaw = 0.f; int iTicks = 0, iSkips = 0;
+	// average yaw of a strafe that consistently turns in the same direction
+	float flAverageYaw = 0.f; int iTicks = 0, iSkips = 0; int iMinimum = flLowMinimumSamples;
+	YawDiffState tYawState = {};
 	iSamples = std::min(iSamples, int(vRecords.size()));
 	size_t i = 1; for (; i < iSamples; i++)
 	{
@@ -436,6 +470,8 @@ void CMovementSimulation::GetAverageYaw(MoveStorage& tMoveStorage, int iSamples)
 			iSkips++;
 			continue;
 		}
+		if (tRecord1.m_flSimTime <= tRecord2.m_flSimTime)
+			break; // duplicate records mean the player went dormant, their movement history is unusable
 
 		bGround = tRecord1.m_iMode != MoveEnum::Air;
 		float flStraightFuzzyValue = bGround ? Vars::Aimbot::Projectile::GroundStraightFuzzyValue.Value : Vars::Aimbot::Projectile::AirStraightFuzzyValue.Value;
@@ -446,14 +482,15 @@ void CMovementSimulation::GetAverageYaw(MoveStorage& tMoveStorage, int iSamples)
 		VisualizeRecords(tRecord1, tRecord2, { 255, 0, 0 }, flStraightFuzzyValue);
 #endif
 
-		float flYaw = 0.f;
-		bool bResult = GetYawDifference(tRecord1, tRecord2, !iTicks, &flYaw, flStraightFuzzyValue, iMaxChanges, iMaxChangeTime, flMaxSpeed);
+		int iSampleTicks = 0;
+		float flYaw = GetStrafeYaw(tRecord1, tRecord2, flMaxSpeed, iSampleTicks);
+		bool bResult = GetYawDifference(tRecord1, tRecord2, !iTicks, flYaw, iSampleTicks, flStraightFuzzyValue, tYawState, iMaxChanges, iMaxChangeTime);
 		SDK::Output("GetYawDifference", std::format("{} ({}): {}, {}", i, iTicks, flYaw, bResult).c_str(), { 50, 127, 75 }, Vars::Debug::Logging.Value);
 		if (!bResult)
 			break;
 
 		flAverageYaw += flYaw;
-		iTicks += std::max(TIME_TO_TICKS(tRecord1.m_flSimTime - tRecord2.m_flSimTime), 1);
+		iTicks += iSampleTicks;
 	}
 #ifdef VISUALIZE_RECORDS
 	size_t i2 = i; for (; i2 < iSamples; i2++)
@@ -475,28 +512,103 @@ void CMovementSimulation::GetAverageYaw(MoveStorage& tMoveStorage, int iSamples)
 	}
 	*/
 #endif
-	if (i <= size_t(iMinimumStrafes + iSkips)) // valid strafes not high enough
-		return;
 
-	int iMinimum = flLowMinimumSamples;
-	if (!bLocal)
+	bool bAverage = false;
+	if (i > size_t(iMinimumStrafes + iSkips)) // valid strafes not high enough
 	{
-		float flDistance = 0.f;
-		if (auto pLocal = H::Entities.GetLocal())
-			flDistance = pLocal->m_vecOrigin().DistTo(tMoveStorage.m_pPlayer->m_vecOrigin());
-		iMinimum = flDistance < flLowMinimumDistance ? flLowMinimumSamples : Math::RemapVal(flDistance, flLowMinimumDistance, flHighMinimumDistance, flLowMinimumSamples + 1, flHighMinimumSamples);
+		if (!bLocal)
+		{
+			float flDistance = 0.f;
+			if (auto pLocal = H::Entities.GetLocal())
+				flDistance = pLocal->m_vecOrigin().DistTo(tMoveStorage.m_pPlayer->m_vecOrigin());
+			iMinimum = flDistance < flLowMinimumDistance ? flLowMinimumSamples : Math::RemapVal(flDistance, flLowMinimumDistance, flHighMinimumDistance, flLowMinimumSamples + 1, flHighMinimumSamples);
+		}
+
+		flAverageYaw /= std::max(iTicks, iMinimum);
+		if (fabsf(flAverageYaw) >= STRAFE_MIN_YAW)
+			bAverage = true;
 	}
 
-	flAverageYaw /= std::max(iTicks, iMinimum);
-	if (fabsf(flAverageYaw) < 0.36f)
-		return;
+	// a player that keeps changing their strafe direction never accumulates a meaningful average yaw, so also
+	// measure the newest uninterrupted phase and the period at which the direction reverses
+	float flPhaseYaw = 0.f; int iPhaseTicks = 0, iPhaseSamples = 0;
+	int iScannedTicks = 0, iChangeCount = 0, iLastChangeTick = 0, iPeriodSum = 0, iPeriodCount = 0;
+	int iPreviousSign = 0; bool bInPhase = true;
+	const int iPhaseRecords = std::min(int(vRecords.size()), STRAFE_PHASE_RECORDS);
+	for (int j = 1; j < iPhaseRecords && iScannedTicks < STRAFE_PHASE_WINDOW; j++)
+	{
+		auto& tRecord1 = vRecords[j - 1];
+		auto& tRecord2 = vRecords[j];
+		if (tRecord1.m_iMode != tRecord2.m_iMode || tRecord1.m_flSimTime <= tRecord2.m_flSimTime)
+			break;
 
-	tMoveStorage.m_flAverageYaw = flAverageYaw;
-	SDK::Output("MovementSimulation", std::format("flAverageYaw calculated to {} from {} ({}){}", flAverageYaw, iTicks, iMinimum, bLocal ? " (local)" : "").c_str(), { 100, 255, 150 }, Vars::Debug::Logging.Value);
+		int iSampleTicks = 0;
+		float flYaw = GetStrafeYaw(tRecord1, tRecord2, flMaxSpeed, iSampleTicks);
+		if (fabsf(flYaw) > STRAFE_MAX_SAMPLE_YAW)
+			break;
+
+		const int iSign = fabsf(flYaw) > 0.01f ? sign(flYaw) : iPreviousSign;
+		if (iPreviousSign && iSign && iSign != iPreviousSign)
+		{
+			if (iChangeCount)
+				iPeriodSum += iScannedTicks - iLastChangeTick, iPeriodCount++;
+			iLastChangeTick = iScannedTicks, iChangeCount++;
+			bInPhase = false;
+		}
+		if (bInPhase)
+			flPhaseYaw += flYaw, iPhaseTicks += iSampleTicks, iPhaseSamples++;
+		if (iSign)
+			iPreviousSign = iSign;
+		iScannedTicks += iSampleTicks;
+	}
+
+	int iHalfPeriod = 0;
+	if (iPeriodCount)
+	{
+		iHalfPeriod = (iPeriodSum + iPeriodCount / 2) / iPeriodCount;
+		if (iHalfPeriod < 2 || iHalfPeriod > STRAFE_PHASE_WINDOW)
+			iHalfPeriod = 0;
+	}
+	bool bStalePhase = false;
+	if (iHalfPeriod && iPhaseTicks > iHalfPeriod + std::max(iHalfPeriod / 2, 2))
+	{	// the player stayed in this direction well beyond the measured period, their alternation has stopped
+		// (the margin tolerates natural half-period jitter)
+		iHalfPeriod = 0, bStalePhase = true;
+	}
+
+	// phase prediction only applies to strafing in the air, where the input direction rotates along with the view
+	const float flPhaseRate = iPhaseTicks ? flPhaseYaw / iPhaseTicks : 0.f;
+	bool bPhase = !tMoveStorage.m_bDirectMove && iPhaseSamples >= 2 && iChangeCount && fabsf(flPhaseRate) >= STRAFE_MIN_YAW;
+	if (bPhase && !iHalfPeriod && iPhaseTicks > STRAFE_PHASE_WINDOW / 2)
+		bPhase = false;	// a long standing phase without a measured period can't be extrapolated safely
+	if (bPhase && bAverage && bStalePhase)
+		bPhase = false;	// a settled consistent turn is better described by the average yaw
+
+	bool bUsePhase = bPhase;
+	if (bPhase && bAverage && iChangeCount < 2)
+	{	// a single direction change shouldn't override a stable average unless the new phase has settled
+		bUsePhase = sign(flAverageYaw) != sign(flPhaseRate) && iPhaseSamples >= 3;
+	}
+
+	if (bUsePhase)
+	{
+		tMoveStorage.m_flStrafeYaw = std::clamp(flPhaseRate, -STRAFE_MAX_YAW, STRAFE_MAX_YAW);
+		tMoveStorage.m_iStrafeHalfPeriod = iHalfPeriod;
+		tMoveStorage.m_iStrafeRemaining = iHalfPeriod
+			? std::max(iHalfPeriod - iPhaseTicks, 0)
+			: std::clamp(iPhaseTicks, 1, STRAFE_UNKNOWN_PERIOD_TICKS);
+		SDK::Output("MovementSimulation", std::format("flStrafeYaw calculated to {} from {} ({} period, {} changes, {} ticks left){}", tMoveStorage.m_flStrafeYaw, iPhaseTicks, iHalfPeriod, iChangeCount, tMoveStorage.m_iStrafeRemaining, bLocal ? " (local)" : "").c_str(), { 100, 255, 150 }, Vars::Debug::Logging.Value);
+	}
+	else if (bAverage)
+	{
+		tMoveStorage.m_flAverageYaw = flAverageYaw;
+		SDK::Output("MovementSimulation", std::format("flAverageYaw calculated to {} from {} ({}){}", flAverageYaw, iTicks, iMinimum, bLocal ? " (local)" : "").c_str(), { 100, 255, 150 }, Vars::Debug::Logging.Value);
+	}
 }
 
 bool CMovementSimulation::StrafePrediction(MoveStorage& tMoveStorage, bool bStrafe, bool bHitchance)
 {
+	tMoveStorage.m_iInputSign = 0;
 	if (bStrafe && Vars::Aimbot::Projectile::StrafePrediction.Value & (tMoveStorage.m_bDirectMove ? Vars::Aimbot::Projectile::StrafePredictionEnum::Ground : Vars::Aimbot::Projectile::StrafePredictionEnum::Air))
 	{
 		const int iStrafeSamples = tMoveStorage.m_bDirectMove
@@ -511,28 +623,41 @@ bool CMovementSimulation::StrafePrediction(MoveStorage& tMoveStorage, bool bStra
 			const auto& vRecords = m_mRecords[tMoveStorage.m_pPlayer->entindex()];
 			const auto iSamples = vRecords.size();
 
-			float flCurrentChance = 1.f, flAverageYaw = 0.f;
+			const size_t iPairs = iSamples > 1 ? iSamples - 1 : 0;
+			const float flChunks = std::max(float((iPairs + iStrafeSamples - 1) / iStrafeSamples), 1.f);
+			float flCurrentChance = 1.f, flAverageYaw = 0.f, flAverageAbsYaw = 0.f; int iChunkPairs = 0;
 			for (size_t i = 0; i < iSamples; i++)
 			{
-				if (vRecords.size() <= i + 2)
+				if (i + 1 >= iSamples)
 					break;
 
 				const auto& pRecord1 = vRecords[i], & pRecord2 = vRecords[i + 1];
-				const float flYaw1 = Math::VectorAngles(pRecord1.m_vDirection).y, flYaw2 = Math::VectorAngles(pRecord2.m_vDirection).y;
-				const float flTime1 = pRecord1.m_flSimTime, flTime2 = pRecord2.m_flSimTime;
-				const int iTicks = std::max(TIME_TO_TICKS(flTime1 - flTime2), 1);
-
-				float flYaw = Math::NormalizeAngle(flYaw1 - flYaw2) / iTicks;
-				flAverageYaw += flYaw;
-				if (tMoveStorage.m_MoveData.m_flMaxSpeed)
-					flYaw *= std::clamp(pRecord1.m_vVelocity.Length2D() / tMoveStorage.m_MoveData.m_flMaxSpeed, 0.f, 1.f);
-
-				if ((i + 1) % iStrafeSamples == 0 || i == iSamples - 1)
+				if (pRecord1.m_flSimTime > pRecord2.m_flSimTime) // duplicate records carry no direction change
 				{
-					flAverageYaw /= i % iStrafeSamples + 1;
-					if (fabsf(tMoveStorage.m_flAverageYaw - flAverageYaw) > 0.5f)
-						flCurrentChance -= 1.f / ((iSamples - 1) / float(iStrafeSamples) + 1);
-					flAverageYaw = 0.f;
+					const float flYaw1 = Math::VectorAngles(pRecord1.m_vDirection).y, flYaw2 = Math::VectorAngles(pRecord2.m_vDirection).y;
+					const float flTime1 = pRecord1.m_flSimTime, flTime2 = pRecord2.m_flSimTime;
+					const int iTicks = std::max(TIME_TO_TICKS(flTime1 - flTime2), 1);
+
+					const float flYaw = Math::NormalizeAngle(flYaw1 - flYaw2) / iTicks;
+					flAverageYaw += flYaw;
+					flAverageAbsYaw += fabsf(flYaw);
+					iChunkPairs++;
+				}
+
+				if ((i + 1) % iStrafeSamples == 0 || i + 2 >= iSamples)
+				{
+					if (iChunkPairs)
+					{
+						flAverageYaw /= iChunkPairs;
+						flAverageAbsYaw /= iChunkPairs;
+						// an alternating strafe has no net chunk yaw, so compare the turn magnitude instead of the signed average
+						const bool bConsistent = tMoveStorage.m_flStrafeYaw
+							? fabsf(flAverageAbsYaw - fabsf(tMoveStorage.m_flStrafeYaw)) <= std::max(0.5f, fabsf(tMoveStorage.m_flStrafeYaw) * 0.5f)
+							: fabsf(tMoveStorage.m_flAverageYaw - flAverageYaw) <= 0.5f;
+						if (!bConsistent)
+							flCurrentChance -= 1.f / flChunks;
+					}
+					flAverageYaw = flAverageAbsYaw = 0.f, iChunkPairs = 0;
 				}
 			}
 
@@ -544,9 +669,10 @@ bool CMovementSimulation::StrafePrediction(MoveStorage& tMoveStorage, bool bStra
 		}
 	}
 
+	const bool bPredictStrafe = tMoveStorage.m_flAverageYaw || tMoveStorage.m_flStrafeYaw;
 	if (!tMoveStorage.m_bDirectMove)
 	{
-		if (!tMoveStorage.m_flAverageYaw)
+		if (!bPredictStrafe)
 			tMoveStorage.m_MoveData.m_flForwardMove = tMoveStorage.m_MoveData.m_flSideMove = 0.f;
 		else
 		{
@@ -557,9 +683,10 @@ bool CMovementSimulation::StrafePrediction(MoveStorage& tMoveStorage, bool bStra
 				Vec3 vDirection = tRecord.m_vVelocity;
 				if (!vDirection.IsZero() && tRecord.m_bInputDirection)
 				{	// fix inputs for turning
-					int iSign = sign(tMoveStorage.m_flAverageYaw);
+					int iSign = sign(tMoveStorage.m_flAverageYaw ? tMoveStorage.m_flAverageYaw : tMoveStorage.m_flStrafeYaw);
 					float flForward = tMoveStorage.m_MoveData.m_flForwardMove, flSide = tMoveStorage.m_MoveData.m_flSideMove;
 					tMoveStorage.m_MoveData.m_flForwardMove = -flSide * iSign, tMoveStorage.m_MoveData.m_flSideMove = flForward * iSign;
+					tMoveStorage.m_iInputSign = iSign; // keep the input direction stable through predicted direction changes
 				}
 			}
 		}
@@ -639,6 +766,14 @@ void CMovementSimulation::RestoreBounds(CTFPlayer* pPlayer)
 	}
 }
 
+static inline void SetVelocityInputs(MoveStorage& tMoveStorage)
+{
+	Vec3 vDirection = tMoveStorage.m_MoveData.m_vecVelocity.Normalized2D() * 520.f;
+	G::DummyCmd.forwardmove = vDirection.x, G::DummyCmd.sidemove = -vDirection.y;
+	SDK::FixMovement(&G::DummyCmd, {}, tMoveStorage.m_MoveData.m_vecViewAngles);
+	tMoveStorage.m_MoveData.m_flForwardMove = G::DummyCmd.forwardmove, tMoveStorage.m_MoveData.m_flSideMove = G::DummyCmd.sidemove;
+}
+
 void CMovementSimulation::RunTick(MoveStorage& tMoveStorage, bool bPath, RunTickCallback* pCallback)
 {
 	if (tMoveStorage.m_bFailed || !tMoveStorage.m_pPlayer || !tMoveStorage.m_pPlayer->IsPlayer())
@@ -665,17 +800,37 @@ void CMovementSimulation::RunTick(MoveStorage& tMoveStorage, bool bPath, RunTick
 		}
 	}
 
-	float flCorrection = 0.f;
-	if (tMoveStorage.m_flAverageYaw)
+	// pick the turn rate for this tick, alternating strafes reverse it every half period
+	float flAppliedYaw = tMoveStorage.m_flAverageYaw, flCorrection = 0.f;
+	if (!flAppliedYaw && tMoveStorage.m_flStrafeYaw)
+	{
+		if (tMoveStorage.m_iStrafeHalfPeriod > 0)
+		{
+			if (tMoveStorage.m_iStrafeRemaining <= 0)
+			{
+				tMoveStorage.m_flStrafeYaw *= -1;
+				tMoveStorage.m_iStrafeRemaining = tMoveStorage.m_iStrafeHalfPeriod;
+			}
+			tMoveStorage.m_iStrafeRemaining--;
+		}
+		else if (--tMoveStorage.m_iStrafeRemaining < 0)
+			tMoveStorage.m_flStrafeYaw = 0.f, tMoveStorage.m_iStrafeRemaining = 0; // observed phase is over, stop turning rather than guessing a reversal
+		flAppliedYaw = tMoveStorage.m_flStrafeYaw;
+	}
+
+	if (flAppliedYaw || tMoveStorage.m_iInputSign)
 	{
 		float flMult = 1.f;
 		if (!tMoveStorage.m_bDirectMove && !tMoveStorage.m_pPlayer->InCond(TF_COND_SHIELD_CHARGE))
 		{
-			flCorrection = 90.f * sign(tMoveStorage.m_flAverageYaw);
-			if (Vars::Aimbot::Projectile::MovesimFrictionFlags.Value & Vars::Aimbot::Projectile::MovesimFrictionFlagsEnum::RunReduce)
-				flMult = GetFrictionScale(tMoveStorage.m_MoveData.m_vecVelocity.Length2D(), tMoveStorage.m_flAverageYaw, tMoveStorage.m_MoveData.m_vecVelocity.z + SDK::GetGravity() * TICK_INTERVAL);
+			// the inputs of a player with a known input direction are rotated alongside the view, so the
+			// correction keeps using the sign they were rotated by instead of following the predicted phase
+			const int iSign = tMoveStorage.m_iInputSign ? tMoveStorage.m_iInputSign : sign(flAppliedYaw);
+			flCorrection = 90.f * iSign;
+			if (flAppliedYaw && Vars::Aimbot::Projectile::MovesimFrictionFlags.Value & Vars::Aimbot::Projectile::MovesimFrictionFlagsEnum::RunReduce)
+				flMult = GetFrictionScale(tMoveStorage.m_MoveData.m_vecVelocity.Length2D(), flAppliedYaw, tMoveStorage.m_MoveData.m_vecVelocity.z + SDK::GetGravity() * TICK_INTERVAL);
 		}
-		tMoveStorage.m_MoveData.m_vecViewAngles.y += tMoveStorage.m_flAverageYaw * flMult + flCorrection;
+		tMoveStorage.m_MoveData.m_vecViewAngles.y += flAppliedYaw * flMult + flCorrection;
 	}
 
 	float flOldSpeed = tMoveStorage.m_MoveData.m_flClientMaxSpeed;
@@ -704,21 +859,30 @@ void CMovementSimulation::RunTick(MoveStorage& tMoveStorage, bool bPath, RunTick
 	bool bLastbDirectMove = tMoveStorage.m_bDirectMove;
 	tMoveStorage.m_bDirectMove = tMoveStorage.m_pPlayer->IsOnGround() || tMoveStorage.m_pPlayer->IsSwimming();
 
-	if (tMoveStorage.m_flAverageYaw)
+	if (flCorrection)
 		tMoveStorage.m_MoveData.m_vecViewAngles.y -= flCorrection;
 
 	if (tMoveStorage.m_bDirectMove && !bLastbDirectMove)
 	{
+		if (tMoveStorage.m_iInputSign)
+		{	// the input rotation used to model strafing is only applied while airborne, undo it so the
+			// landed movement keeps pointing along the predicted direction
+			const float flForward = tMoveStorage.m_MoveData.m_flForwardMove, flSide = tMoveStorage.m_MoveData.m_flSideMove;
+			tMoveStorage.m_MoveData.m_flForwardMove = flSide * tMoveStorage.m_iInputSign, tMoveStorage.m_MoveData.m_flSideMove = -flForward * tMoveStorage.m_iInputSign;
+			tMoveStorage.m_iInputSign = 0;
+		}
 		if (tMoveStorage.m_flAverageYaw)
 			tMoveStorage.m_flAverageYaw *= -1;
+		else if (tMoveStorage.m_flStrafeYaw)
+		{	// an alternating air strafe doesn't carry over to the ground, resume with the landed velocity instead
+			tMoveStorage.m_flStrafeYaw = 0.f;
+			tMoveStorage.m_iStrafeHalfPeriod = tMoveStorage.m_iStrafeRemaining = 0;
+			if (tMoveStorage.m_MoveData.m_vecVelocity.Length2D() > tMoveStorage.m_MoveData.m_flMaxSpeed * 0.015f)
+				SetVelocityInputs(tMoveStorage);
+		}
 		else if (!tMoveStorage.m_MoveData.m_flForwardMove && !tMoveStorage.m_MoveData.m_flSideMove
 			&& tMoveStorage.m_MoveData.m_vecVelocity.Length2D() > tMoveStorage.m_MoveData.m_flMaxSpeed * 0.015f)
-		{
-			Vec3 vDirection = tMoveStorage.m_MoveData.m_vecVelocity.Normalized2D() * 520.f;
-			G::DummyCmd.forwardmove = vDirection.x, G::DummyCmd.sidemove = -vDirection.y;
-			SDK::FixMovement(&G::DummyCmd, {}, tMoveStorage.m_MoveData.m_vecViewAngles);
-			tMoveStorage.m_MoveData.m_flForwardMove = G::DummyCmd.forwardmove, tMoveStorage.m_MoveData.m_flSideMove = G::DummyCmd.sidemove;
-		}
+			SetVelocityInputs(tMoveStorage);
 	}
 
 	RestoreBounds(tMoveStorage.m_pPlayer);

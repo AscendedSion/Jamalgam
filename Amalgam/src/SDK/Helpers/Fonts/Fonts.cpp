@@ -5,11 +5,11 @@
 
 void CFonts::Reload(float flDPI, bool bOutline)
 {
-	int iFlags = !bOutline ? FONTFLAG_ANTIALIAS : FONTFLAG_ANTIALIAS | FONTFLAG_DROPSHADOW;
+	int iFlags = !bOutline ? FONTFLAG_NONE : FONTFLAG_DROPSHADOW;
 
-	m_mFonts[FONT_ESP] = { "Tahoma", int(13.f * flDPI), iFlags, 0 };
+	m_mFonts[FONT_ESP] = { "Small Fonts", int(12.f * flDPI), iFlags, 600 };
 	m_mFonts[FONT_ESP_SMALL] = { "Small Fonts", int(9.f * flDPI), iFlags, 0 };
-	m_mFonts[FONT_INDICATORS] = { "Small Fonts", int(12.f * flDPI), iFlags, 0 };
+	m_mFonts[FONT_INDICATORS] = { "Verdana", int(12.f * flDPI), iFlags, 0 };
 
 	for (auto& fFont : m_mFonts | std::views::values)
 	{

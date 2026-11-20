@@ -424,13 +424,23 @@ void CTicks::Draw(CTFPlayer* pLocal)
 	float flRatio = float(iTicks) / float(iMax);
 	int iSizeX = H::Draw.Scale(100, Scale_Round), iSizeY = H::Draw.Scale(12, Scale_Round);
 	int iPosX = dtPos.x - iSizeX / 2, iPosY = dtPos.y + fFont.m_nTall + H::Draw.Scale(4) + 1;
-	Color_t textcol = Vars::Menu::Theme::Active.Value;
+	Color_t textcol;
+
+	if (iTicks < 19)
+		textcol = { 255, 0, 0, 255 };
+	else if (m_iWait || m_bRecharge)
+		textcol = { 255, 255, 150, 255 };
+	else if (iTicks >= 19)
+		textcol = { 150, 255, 150, 255 };
 
 	H::Draw.StringOutlined(fFont, dtPos.x, dtPos.y + 2, textcol, Vars::Menu::Theme::Background.Value, ALIGN_TOP, std::format("DOUBLETAP {} / {}", iTicks, iMax).c_str());
-	if (m_iWait)
-		textcol = Vars::Menu::Theme::Inactive.Value;
-	else if (m_bRecharge)
-		textcol = Vars::Colors::IndicatorTextMid.Value;
-	else if (iTicks >= iMax)
-		textcol = Vars::Colors::IndicatorTextGood.Value;
+
+	// Progress bar
+	int iProgressBarWidth = 10;
+	int iFilledBars = int(flRatio * iProgressBarWidth);
+	std::string sProgressBar = "[";
+	for (int i = 0; i < iProgressBarWidth; i++)
+		sProgressBar += (i < iFilledBars) ? "|" : ".";
+	sProgressBar += "]";
+	H::Draw.StringOutlined(fFont, dtPos.x, dtPos.y + fFont.m_nTall + 4, textcol, Vars::Menu::Theme::Background.Value, ALIGN_TOP, sProgressBar.c_str());
 }

@@ -804,6 +804,7 @@ void CESP::DrawPlayers()
 			auto fDrawBar = [&](int x, int y, int w, int h, EAlign eAlign = ALIGN_LEFT)
 			{
 					H::Draw.FillRect(x, y, w, h, {0,0,0,140});
+					H::Draw.LineRect(x, y, w, h, tColor);
 				if (flPercent > 1.f)
 				{
 					H::Draw.FillRectPercent(x, y, w, h, 1.f, tColor, { 0, 0, 0, 255 }, eAlign, bAdjust);
@@ -814,7 +815,7 @@ void CESP::DrawPlayers()
 			};
 
 			int iSpace = H::Draw.Scale(4);
-			int iThickness = H::Draw.Scale(2, Scale_Round);
+			int iThickness = H::Draw.Scale(3, Scale_Round);
 			switch (iMode)
 			{
 			case ALIGN_LEFT:
@@ -847,7 +848,7 @@ void CESP::DrawPlayers()
 				break;
 			}
 			case ALIGN_LEFT:
-				H::Draw.StringOutlined(fFontSmall, l - lOffset, y - H::Draw.Scale(2) + h - h * std::min(tCache.m_flHealth, 1.f), tColor, tOutline, ALIGN_TOPRIGHT, sText.c_str());
+				H::Draw.StringOutlined(fFontSmall, l - lOffset + 5, y - H::Draw.Scale(2) + h - h * std::min(tCache.m_flHealth, 1.f), tColor, tOutline, ALIGN_TOPRIGHT, std::format("[{}]", sText).c_str());
 				break;
 			case ALIGN_TOPRIGHT: {
 				std::string sUpper = sText;
@@ -859,7 +860,7 @@ void CESP::DrawPlayers()
 				break;
 			}
 			case ALIGN_BOTTOMRIGHT:
-				H::Draw.StringOutlined(fFontSmall, r, y + h, tColor, tOutline, ALIGN_TOPLEFT, sText.c_str());
+				H::Draw.StringOutlined(fFontSmall, r, y + h, tColor, tOutline, ALIGN_TOPLEFT, std::format("[{}]", sText).c_str());
 				break;
 			}
 		}
