@@ -5,6 +5,7 @@
 #include "../Aimbot/AutoRocketJump/AutoRocketJump.h"
 #include "../Backtrack/Backtrack.h"
 #include "../AntiCheatCompatibility/AntiCheatCompatibility.h"
+#include "../NoSpread/NoSpreadHitscan/NoSpreadHitscan.h"
 
 void CTicks::Reset()
 {
@@ -38,7 +39,7 @@ void CTicks::Recharge(CTFPlayer* pLocal)
 		return;
 
 	m_bRecharge = true;
-	m_iShiftedGoal = m_iShiftedTicks + 1;
+	m_iShiftedGoal = m_iMaxShift; // change to m_iShiftedTicks + 1; if u want to disable full recharge
 }
 
 void CTicks::Warp()
@@ -70,7 +71,7 @@ void CTicks::Doubletap(CTFPlayer* pLocal, CUserCmd* pCmd)
 		return;
 
 	bool bAttacking = G::PrimaryWeaponType == EWeaponType::MELEE ? pCmd->buttons & IN_ATTACK : G::Attacking;
-	if (!G::CanPrimaryAttack && !G::Reloading || !bAttacking && !m_bDoubletap || F::AutoRocketJump.IsRunning())
+	if (!G::CanPrimaryAttack && !G::Reloading || !bAttacking || F::AutoRocketJump.IsRunning())
 		return;
 
 	m_bDoubletap = true;
@@ -231,7 +232,7 @@ void CTicks::MoveManage()
 		default:
 			if (!ValidWeapon(pWeapon))
 				m_iWait = -1;
-			else if (G::Attacking || !G::CanPrimaryAttack && !G::Reloading)
+			else if (!G::CanPrimaryAttack && !G::Reloading)
 				m_iWait = Vars::Doubletap::TickLimit.Value;
 		}
 	}
@@ -341,7 +342,7 @@ int CTicks::GetTicks(CTFWeaponBase* pWeapon)
 	int iTicks = std::min(m_iShiftedTicks + 1, 22);
 	if (!(iTicks >= Vars::Doubletap::TickLimit.Value || pWeapon && GetShotsWithinPacket(pWeapon, iTicks) > 1))
 		return 0;
-	
+
 	return std::min(Vars::Doubletap::TickLimit.Value - 1, m_iMaxShift);
 }
 
@@ -415,7 +416,7 @@ void CTicks::Draw(CTFPlayer* pLocal)
 	const auto& fFont = H::Fonts.GetFont(FONT_INDICATORS);
 
 	if (m_bSpeedhack)
-		return H::Draw.StringOutlined(fFont, dtPos.x, dtPos.y + 2, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOP, std::format("Speedhack x{}", Vars::Speedhack::Scale.Value).c_str());
+		return H::Draw.StringOutlined(fFont, dtPos.x, dtPos.y + 2, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOP, std::format("SPEEDHACK x{}", Vars::Speedhack::Scale.Value).c_str());
 	
 	int iAntiAimTicks = F::AntiAim.YawOn() ? F::AntiAim.AntiAimTicks() : 0;
 	int iTicks = std::clamp(m_iShiftedTicks + std::max(I::ClientState->chokedcommands - iAntiAimTicks, 0), 0, m_iMaxUsrCmdProcessTicks);
@@ -433,14 +434,14 @@ void CTicks::Draw(CTFPlayer* pLocal)
 	else if (iTicks >= 19)
 		textcol = { 150, 255, 150, 255 };
 
-	H::Draw.StringOutlined(fFont, dtPos.x, dtPos.y + 2, textcol, Vars::Menu::Theme::Background.Value, ALIGN_TOP, std::format("DOUBLETAP {} / {}", iTicks, iMax).c_str());
+	H::Draw.StringOutlined(fFont, dtPos.x, dtPos.y + 2, textcol, Vars::Menu::Theme::Background.Value, ALIGN_TOP, std::format("DOUBLETAP: {} / {}", iTicks, iMax).c_str());
 
 	// Progress bar
-	int iProgressBarWidth = 10;
+	int iProgressBarWidth = 15;
 	int iFilledBars = int(flRatio * iProgressBarWidth);
 	std::string sProgressBar = "[";
 	for (int i = 0; i < iProgressBarWidth; i++)
-		sProgressBar += (i < iFilledBars) ? "|" : ".";
+		sProgressBar += (i < iFilledBars) ? "|" : "";
 	sProgressBar += "]";
 	H::Draw.StringOutlined(fFont, dtPos.x, dtPos.y + fFont.m_nTall + 4, textcol, Vars::Menu::Theme::Background.Value, ALIGN_TOP, sProgressBar.c_str());
 }

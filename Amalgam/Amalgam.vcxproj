@@ -1229,6 +1229,7 @@
     <ClInclude Include="src\Features\AntiCheatCompatibility\AntiCheatCompatibility.h" />
     <ClInclude Include="src\Features\Debug\Debug.h" />
     <ClInclude Include="src\Features\ImGui\Easings\Easings.h" />
+    <ClInclude Include="src\Features\ImGui\Fonts\minecraft.h" />
     <ClInclude Include="src\Features\Output\Output.h" />
     <ClInclude Include="src\Features\Misc\AutoQueue\AutoQueue.h" />
     <ClInclude Include="src\Features\Backtrack\Backtrack.h" />

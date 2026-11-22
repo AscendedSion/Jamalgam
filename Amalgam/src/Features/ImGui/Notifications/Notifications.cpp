@@ -83,7 +83,7 @@ void CNotifications::Draw()
 
 	ImDrawList* pDrawList = GetForegroundDrawList();
 
-	float h = H::Draw.Scale(40);
+	float h = H::Draw.Scale(31);
 	float y = ShouldReverseY() ? GetIO().DisplaySize.y - H::Draw.Scale(8) - h : H::Draw.Scale(8);
 	for (auto& tNotification : m_vNotifications)
 	{
@@ -128,13 +128,13 @@ void CNotifications::Draw()
 		pDrawList->AddRectFilled(vDrawPos + ImVec2(flInset, flInset), vDrawPos + vSize - ImVec2(flInset, flInset), uAccentOpaque, H::Draw.Scale(0));
 		pDrawList->PopClipRect();
 		flInset += H::Draw.Scale(0.5f) - 0.5f - H::Draw.Scale();
-		pDrawList->AddRect(vDrawPos + ImVec2(flInset, flInset), vDrawPos + vSize - ImVec2(flInset, flInset), uBorder, H::Draw.Scale(4), ImDrawFlags_None, H::Draw.Scale());
+		pDrawList->AddRect(vDrawPos + ImVec2(flInset, flInset), vDrawPos + vSize - ImVec2(flInset, flInset), uBorder, H::Draw.Scale(0), ImDrawFlags_None, H::Draw.Scale());
 		if (!bIcon)
-			pDrawList->AddText(vDrawPos + ImVec2(H::Draw.Scale(15), H::Draw.Scale(13)), uActive, tNotification.m_sText.c_str());
+			pDrawList->AddText(vDrawPos + ImVec2(H::Draw.Scale(15), H::Draw.Scale(10)), uActive, tNotification.m_sText.c_str());
 		else
 		{
-			pDrawList->AddText(vDrawPos + ImVec2(H::Draw.Scale(39), H::Draw.Scale(13)), uActive, tNotification.m_sText.c_str());
-			pDrawList->AddText(F::Render.IconFont, F::Render.IconFont->LegacySize, vDrawPos + ImVec2(H::Draw.Scale(12), H::Draw.Scale(12)), uAccentOpaque, tNotification.m_sIcon);
+			pDrawList->AddText(vDrawPos + ImVec2(H::Draw.Scale(39), H::Draw.Scale(10)), uActive, tNotification.m_sText.c_str());
+			pDrawList->AddText(F::Render.IconFont, F::Render.IconFont->LegacySize, vDrawPos + ImVec2(H::Draw.Scale(12), H::Draw.Scale(9)), uAccentOpaque, tNotification.m_sIcon);
 		}
 
 		y += (h + H::Draw.Scale(8, Scale_Round)) * (flEaseY) * Y();

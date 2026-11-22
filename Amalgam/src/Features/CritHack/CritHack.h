@@ -25,6 +25,11 @@ private:
 	bool IsCritSeed(int iSeed, CTFWeaponBase* pWeapon, bool bCrit = true, bool bSafe = true);
 	int CommandToSeed(int iCommandNumber);
 
+	int GetPillCommand(CTFWeaponBase* pWeapon, int iCommandNumber, bool bAvoidCrit);
+	int GetPipeSpin(int iCommandNumber, bool bSkipAngles);
+	void SeedLaunchRandom(int iCommandNumber, bool bSkipAngles);
+	bool TryNoPillRotation(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, CUserCmd* pCmd);
+
 	void UpdateWeaponInfo(CTFPlayer* pLocal, CTFWeaponBase* pWeapon);
 	void UpdateInfo(CTFPlayer* pLocal, CTFWeaponBase* pWeapon);
 	int GetCritRequest(CUserCmd* pCmd, CTFPlayer* pLocal, CTFWeaponBase* pWeapon);

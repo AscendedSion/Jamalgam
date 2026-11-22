@@ -15,6 +15,10 @@
 #define SEED_ATTEMPTS 4096
 #define BUCKET_ATTEMPTS 1000
 
+// atlas parity: a pill whose launch tumble is this close to zero does not visibly spin on the
+// server either, so its landing is the predictable one
+#define PIPE_SPIN_TOLERANCE 1
+
 //#define SERVER_CRIT_DATA
 
 int CCritHack::GetCritCommand(CTFWeaponBase* pWeapon, int iCommandNumber, bool bCrit, bool bSafe)
@@ -25,6 +29,98 @@ int CCritHack::GetCritCommand(CTFWeaponBase* pWeapon, int iCommandNumber, bool b
 			return i;
 	}
 	return 0;
+}
+
+// The server's grenade launch is: PlayWeaponShootSound reseeds the shared stream from the command's
+// prediction random seed through SharedRandomInt( "SelectWeightedSequence" ) and burns six draws in
+// the sound path; FireProjectile then takes the two velocity jitter floats and finally the angular
+// impulse, whose y component is the end-over-end tumble: AngularImpulse( 600, RandomInt( -1200,
+// 1200 ), 0 ). Reproducing those draws lets us pick a command number that fires a pill with no spin.
+void CCritHack::SeedLaunchRandom(int iCommandNumber, bool bSkipAngles)
+{
+	const int iSeed = MD5_PseudoRandom(iCommandNumber) & std::numeric_limits<int>::max();
+	SDK::RandomSeed(SDK::SeedFileLineHash(iSeed, "SelectWeightedSequence", 0));
+
+	for (int i = 0; i < 6; i++)
+		SDK::RandomFloat(0.f, 1.f);
+
+	// weapons with an angular projectile spread burn three more draws before the velocity jitter
+	if (bSkipAngles)
+	{
+		for (int i = 0; i < 3; i++)
+			SDK::RandomInt(0, 0x7FFF);
+	}
+}
+
+int CCritHack::GetPipeSpin(int iCommandNumber, bool bSkipAngles)
+{
+	SeedLaunchRandom(iCommandNumber, bSkipAngles);
+
+	SDK::RandomFloat(-10.f, 10.f); // velocity jitter, up
+	SDK::RandomFloat(-10.f, 10.f); // velocity jitter, right
+
+	return SDK::RandomInt(-1200, 1200);
+}
+
+int CCritHack::GetPillCommand(CTFWeaponBase* pWeapon, int iCommandNumber, bool bAvoidCrit)
+{
+	const bool bSkipAngles = SDK::AttribHookValue(0.f, "projectile_spread_angle", pWeapon) > 0.f;
+
+	for (int i = iCommandNumber; i < iCommandNumber + SEED_ATTEMPTS; i++)
+	{
+		const int iSpin = GetPipeSpin(i, bSkipAngles);
+		if (iSpin < -PIPE_SPIN_TOLERANCE || iSpin > PIPE_SPIN_TOLERANCE)
+			continue;
+
+		// do not trade the crit pass's avoidance for an unspinning pill
+		if (bAvoidCrit && !IsCritCommand(i, pWeapon, false))
+			continue;
+
+		return i;
+	}
+
+	return 0;
+}
+
+bool CCritHack::TryNoPillRotation(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, CUserCmd* pCmd)
+{
+	if (!Vars::CritHack::NoPillRotation.Value || F::AntiCheatCompatibility.Active())
+		return false;
+
+	if (pWeapon->GetWeaponID() != TF_WEAPON_GRENADELAUNCHER)
+		return false;
+
+	// the Loch-n-Load's pills never tumble, so there is nothing to steer
+	if (SDK::AttribHookValue(0.f, "grenade_no_spin", pWeapon) != 0.f)
+		return false;
+
+	// only remap the command that actually launches the pill
+	if (!G::Attacking && !F::Ticks.m_bDoubletap && !F::Ticks.m_bSpeedhack)
+		return false;
+
+	// one command number cannot hold both a crit seed and a spinless pill: the crit request decides
+	// which pass owns this tick, exactly like the source's "On crit" choice
+	const bool bCritPassActive = !pLocal->IsCritBoosted() && pWeapon->m_flCritTime() <= I::GlobalVars->curtime && WeaponCanCrit(pWeapon);
+	const int iRequest = bCritPassActive ? GetCritRequest(pCmd, pLocal, pWeapon) : CritRequestEnum::Any;
+
+	if (iRequest == CritRequestEnum::Crit && Vars::CritHack::PillCritPriority.Value == 1)
+		return false;
+
+	const int iCommand = GetPillCommand(pWeapon, pCmd->command_number, iRequest == CritRequestEnum::Skip);
+	if (iCommand <= 0)
+		return false;
+
+	pCmd->command_number = iCommand;
+	pCmd->random_seed = MD5_PseudoRandom(iCommand) & std::numeric_limits<int>::max();
+
+	if (Vars::Debug::Logging.Value)
+	{
+		SDK::Output("CritHack", std::format("pill command {} spin {}",
+			iCommand, GetPipeSpin(iCommand, SDK::AttribHookValue(0.f, "projectile_spread_angle", pWeapon) > 0.f)).c_str(),
+			{ 180, 160, 255 });
+	}
+
+	return true;
 }
 
 bool CCritHack::IsCritCommand(int iCommandNumber, CTFWeaponBase* pWeapon, bool bCrit, bool bSafe)
@@ -323,6 +419,13 @@ void CCritHack::Run(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, CUserCmd* pCmd)
 		return;
 
 	UpdateInfo(pLocal, pWeapon);
+
+	// "No pill rotation" does not depend on the crit budget, so it runs before the crit early-outs:
+	// it only owns the command number when it finds a spinless launch and the crit pass is not
+	// claiming the tick
+	if (TryNoPillRotation(pLocal, pWeapon, pCmd))
+		return;
+
 	if (pLocal->IsCritBoosted() || pWeapon->m_flCritTime() > I::GlobalVars->curtime || !WeaponCanCrit(pWeapon))
 		return;
 

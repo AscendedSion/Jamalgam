@@ -2,157 +2,233 @@
 
 #ifdef DEBUG_INFO
 
-#define PAIR(x) { x, #x }
+// Panels are laid out from the bottom of the screen upward in this order, and anything not named here
+// after them, so a section keeps the place it was first seen in rather than moving around when another
+// feature starts writing.
+static const char* s_aSectionOrder[] = { "Local", "Resolver", "Nospread", "Strafing", "Bones", "Splashbot" };
+
+DebugSection_t& CDebug::GetSection(const char* sSection)
+{
+	for (auto& tSection : m_vSections)
+	{
+		if (tSection.m_sName == sSection)
+			return tSection;
+	}
+
+	return m_vSections.emplace_back(DebugSection_t{ sSection,{} });
+}
+
+void CDebug::Log(const char* sFunction, const char* sLog, Color_t tColor)
+{
+	if (!Vars::Debug::Logging.Value || !I::GlobalVars)
+		return;
+
+	const std::string sLine = sLog && *sLog ? std::format("[{}] {}", sFunction, sLog) : std::format("[{}]", sFunction);
+
+	// A feature that logs the same thing every tick repeats itself, and the count is the interesting
+	// part of a per-tick line anyway, so the repeat is folded into the line above it.
+	if (!m_dLog.empty() && m_dLog.back().m_sText == sLine)
+	{
+		m_dLog.back().m_flTime = I::GlobalVars->curtime;
+		m_dLog.back().m_iCount++;
+		return;
+	}
+
+	m_dLog.push_back({ sLine, tColor, I::GlobalVars->curtime, 1 });
+	while (m_dLog.size() > DEBUG_LOG_MAX)
+		m_dLog.pop_front();
+}
+
+void CDebug::Info(const char* sSection, const std::string& sKey, const std::string& sValue, Color_t tColor)
+{
+	if (!Vars::Debug::Info.Value || !I::GlobalVars)
+		return;
+
+	auto& tSection = GetSection(sSection);
+	for (auto& tValue : tSection.m_vValues)
+	{
+		if (tValue.m_sKey != sKey)
+			continue;
+
+		tValue.m_sValue = sValue;
+		tValue.m_tColor = tColor;
+		tValue.m_flTime = I::GlobalVars->curtime;
+		return;
+	}
+
+	tSection.m_vValues.push_back({ sKey, sValue, tColor, I::GlobalVars->curtime });
+}
+
+void CDebug::Clear()
+{
+	m_dLog.clear();
+	m_vSections.clear();
+}
+
 void CDebug::Draw(CTFPlayer* pLocal)
 {
+	if (!Vars::Debug::Info.Value && !Vars::Debug::Logging.Value
 #ifdef DEBUG_TEXT
-	if (!Vars::Debug::Info.Value && m_mDebugText.empty())
-		return;
-#else
-	if (!Vars::Debug::Info.Value)
-		return;
+		&& m_mDebugText.empty()
 #endif
+		)
+		return;
 
-	int x = 10, y = 10;
-	const auto& fFont = H::Fonts.GetFont(FONT_INDICATORS);
-	const int nTall = fFont.m_nTall + H::Draw.Scale(1);
-	y -= nTall;
-
+	// One column, top left: the feed first, then the panels underneath it. Splitting them into opposite
+	// corners put two halves of the same readout as far apart as the screen allows.
+	int y = H::Draw.Scale(6);
+	if (Vars::Debug::Logging.Value)
+		y = DrawLog(y);
 	if (Vars::Debug::Info.Value)
-	{
-		auto pWeapon = H::Entities.GetWeapon();
-		auto pCmd = !I::EngineClient->IsPlayingDemo() ? G::CurrentUserCmd : I::Input->GetUserCmd(I::ClientState->lastoutgoingcommand);
-
-		if (pCmd)
-		{
-			H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("View: ({:.3f}, {:.3f}, {:.3f})", pCmd->viewangles.x, pCmd->viewangles.y, pCmd->viewangles.z).c_str());
-			H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Move: ({}, {}, {})", pCmd->forwardmove, pCmd->sidemove, pCmd->upmove).c_str());
-			H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Buttons: {:#034b} ({})", pCmd->buttons,
-				[&]()
-				{
-					std::string sReturn = "";
-					if (pCmd->buttons)
-					{
-						static std::vector<std::pair<int, const char*>> vFlags = {
-							PAIR(IN_ATTACK),
-							PAIR(IN_ATTACK2),
-							PAIR(IN_ATTACK3),
-							PAIR(IN_FORWARD),
-							PAIR(IN_BACK),
-							PAIR(IN_MOVELEFT),
-							PAIR(IN_MOVERIGHT),
-							PAIR(IN_JUMP),
-							PAIR(IN_DUCK),
-							PAIR(IN_RELOAD),
-							PAIR(IN_LEFT),
-							PAIR(IN_RIGHT),
-							PAIR(IN_SCORE),
-							/*
-							PAIR(IN_USE),
-							PAIR(IN_CANCEL),
-							PAIR(IN_RUN),
-							PAIR(IN_ALT1),
-							PAIR(IN_ALT2),
-							PAIR(IN_SPEED),
-							PAIR(IN_WALK),
-							PAIR(IN_ZOOM),
-							PAIR(IN_WEAPON1),
-							PAIR(IN_WEAPON2),
-							PAIR(IN_BULLRUSH),
-							PAIR(IN_GRENADE1),
-							PAIR(IN_GRENADE2),
-							*/
-						};
-
-						for (int i = 0; i < vFlags.size(); i++)
-						{
-							auto& paFlag = vFlags[i];
-							if (pCmd->buttons & paFlag.first)
-							{
-								if (!sReturn.empty())
-									sReturn += " | ";
-								sReturn += paFlag.second;
-							}
-						}
-					}
-					return sReturn.empty() ? "NONE" : sReturn;
-				}()).c_str());
-			H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("TickCount: {}, Command: {}", pCmd->tick_count, pCmd->command_number).c_str());
-			//H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("WeaponSelect: {}, WeaponSubtype: {}", pCmd->weaponselect, pCmd->weaponsubtype, pCmd->impulse).c_str());
-			//H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("RandomSeed: {}, Impulse: {}", pCmd->random_seed, pCmd->impulse).c_str());
-			//H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("MouseDx: {}, MouseDy: {}", pCmd->random_seed, pCmd->impulse).c_str());
-			//H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("HasBeenPredicted: {}", pCmd->hasbeenpredicted).c_str());
-		}
-		Vec3 vOrigin = pLocal->m_vecOrigin();
-		H::Draw.StringOutlined(fFont, x, y += nTall * 2, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Origin: ({:.3f}, {:.3f}, {:.3f})", vOrigin.x, vOrigin.y, vOrigin.z).c_str());
-		Vec3 vVelocity = pLocal->m_vecVelocity();
-		H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Velocity: {:.3f}, {:.3f} ({:.3f}, {:.3f}, {:.3f})", vVelocity.Length(), vVelocity.Length2D(), vVelocity.x, vVelocity.y, vVelocity.z).c_str());
-		H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Tickbase: {}", pLocal->m_nTickBase()).c_str());
-		//H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Choke: {}, {}", G::Choking, I::ClientState->chokedcommands).c_str());
-		//H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Ticks: {}, {}", F::Ticks.m_iShiftedTicks, F::Ticks.m_iShiftedGoal).c_str());
-		//H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Round state: {}, {}, {}", SDK::GetRoundState(), SDK::GetWinningTeam(), I::EngineClient->IsPlayingDemo()).c_str());
-		//H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Entities: {} ({}, {})", I::ClientEntityList->GetMaxEntities(), I::ClientEntityList->GetHighestEntityIndex(), I::ClientEntityList->NumberOfEntities(false)).c_str());
-
-		/*
-		if (pWeapon)
-		{
-			float flTime = TICKS_TO_TIME(pLocal->m_nTickBase());
-			float flPrimaryAttack = pWeapon->m_flNextPrimaryAttack();
-			float flSecondaryAttack = pWeapon->m_flNextSecondaryAttack();
-			float flAttack = pLocal->m_flNextAttack();
-
-			y += nTall;
-			H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Weapon: {}, {}", pWeapon->GetSlot(), pWeapon->GetWeaponID()).c_str());
-			H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Attacking: {}", G::Attacking).c_str());
-			H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("CanPrimaryAttack: {} ([{:.3f} | {:.3f}] <= {:.3f})", G::CanPrimaryAttack, flPrimaryAttack, flAttack, flTime).c_str());
-			H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("CanSecondaryAttack: {} ([{:.3f} | {:.3f}] <= {:.3f})", G::CanSecondaryAttack, flSecondaryAttack, flAttack, flTime).c_str());
-			H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Attack: {:.3f}, {:.3f}; {:.3f}", flTime - flPrimaryAttack, flTime - flSecondaryAttack, flTime - flAttack).c_str());
-			H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Reload: {} ({} || {} != 0)", G::Reloading, pWeapon->m_bInReload(), pWeapon->m_iReloadMode()).c_str());
-			H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, std::format("Throw: {}, Smack: {}", G::Throwing, pWeapon->m_flSmackTime()).c_str());
-		}
-		*/
-	}
+		DrawInfo(pLocal, y + H::Draw.Scale(4));
 
 #ifdef DEBUG_TEXT
-	if (!m_mDebugText.empty())
-	{
-		if (Vars::Debug::Info.Value)
-			y += nTall;
-		for (auto& [uType, vDebugText] : m_mDebugText)
-		{
-			for (auto it = vDebugText.begin(); it != vDebugText.end();)
-			{
-				if (it->m_flTime && it->m_flTime < I::GlobalVars->curtime)
-					it = vDebugText.erase(it);
-				else
-					++it;
-			}
-			if (vDebugText.empty())
-			{
-				m_mDebugText.erase(uType);
-				continue;
-			}
-			for (auto& [sString, flTime, vPosition2D, vPosition3D, tColor] : vDebugText)
-			{
-				if (vPosition3D)
-				{
-					if (Vec3 vScreen; SDK::W2S(*vPosition3D, vScreen))
-						H::Draw.StringOutlined(fFont, vScreen.x, vScreen.y, tColor, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, sString.c_str());
-				}
-				else if (vPosition2D)
-					H::Draw.StringOutlined(fFont, vPosition2D->x, vPosition2D->y, tColor, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, sString.c_str());
-				else
-					H::Draw.StringOutlined(fFont, x, y += nTall, tColor, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, sString.c_str());
-			}
-		}
-	}
+	DrawText();
 #endif
 }
-#undef PAIR
 
+int CDebug::DrawLog(int y)
+{
+	const auto& fFont = H::Fonts.GetFont(FONT_INDICATORS);
+	const int nTall = fFont.m_nTall + H::Draw.Scale(1);
+	const int x = H::Draw.Scale(8);
 
+	for (auto it = m_dLog.begin(); it != m_dLog.end();)
+	{
+		if (I::GlobalVars->curtime - it->m_flTime > DEBUG_LOG_TIME)
+			it = m_dLog.erase(it);
+		else
+			++it;
+	}
+
+	for (auto& tLine : m_dLog)
+	{
+		y += nTall;
+		if (tLine.m_iCount > 1)
+			H::Draw.StringOutlined(fFont, x, y, tLine.m_tColor, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT,
+				std::format("{} (x{})", tLine.m_sText, tLine.m_iCount).c_str());
+		else
+			H::Draw.StringOutlined(fFont, x, y, tLine.m_tColor, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT,
+				tLine.m_sText.c_str());
+	}
+
+	return y;
+}
+
+void CDebug::DrawInfo(CTFPlayer* pLocal, int y)
+{
+	// The local readout is written here rather than by a feature, because the values only exist once
+	// the frame is being painted.
+	if (pLocal)
+	{
+		auto pCmd = !I::EngineClient->IsPlayingDemo() ? G::CurrentUserCmd : I::Input->GetUserCmd(I::ClientState->lastoutgoingcommand);
+		if (pCmd)
+			Info("Local", "command", std::format("tick {} num {}", pCmd->tick_count, pCmd->command_number));
+
+		Vec3 vOrigin = pLocal->m_vecOrigin();
+		Info("Local", "origin", std::format("{:.0f}, {:.0f}, {:.0f}", vOrigin.x, vOrigin.y, vOrigin.z));
+		Info("Local", "velocity", std::format("{:.0f}", pLocal->m_vecVelocity().Length()));
+		Info("Local", "tickbase", std::format("{}", pLocal->m_nTickBase()));
+		Info("Local", "choke", std::format("{} ({})", G::Choking, I::ClientState->chokedcommands));
+		Info("Local", "k/d", std::format("{} / {}", pLocal->m_iKills(), pLocal->m_iDeaths()));
+	}
+
+	// Drop whatever nothing refreshed: a row is only on screen while its feature is still writing it,
+	// which is what makes the panels describe the current frame instead of the last interesting one.
+	for (auto it = m_vSections.begin(); it != m_vSections.end();)
+	{
+		auto& vValues = it->m_vValues;
+		for (auto it2 = vValues.begin(); it2 != vValues.end();)
+		{
+			if (I::GlobalVars->curtime - it2->m_flTime > DEBUG_INFO_TIME)
+				it2 = vValues.erase(it2);
+			else
+				++it2;
+		}
+
+		if (vValues.empty())
+			it = m_vSections.erase(it);
+		else
+			++it;
+	}
+
+	std::vector<DebugSection_t*> vSections = {};
+	for (auto sName : s_aSectionOrder)
+	{
+		for (auto& tSection : m_vSections)
+		{
+			if (tSection.m_sName == sName)
+				vSections.push_back(&tSection);
+		}
+	}
+	for (auto& tSection : m_vSections)
+	{
+		if (std::find(vSections.begin(), vSections.end(), &tSection) == vSections.end())
+			vSections.push_back(&tSection);
+	}
+
+	const auto& fFont = H::Fonts.GetFont(FONT_INDICATORS);
+	const int nTall = fFont.m_nTall + H::Draw.Scale(1);
+	const int x = H::Draw.Scale(8);
+
+	// Every section is a header and its rows, one under the other, left aligned with the feed above.
+	for (auto pSection : vSections)
+	{
+		H::Draw.StringOutlined(fFont, x, y += nTall, Vars::Menu::Theme::Accent.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, pSection->m_sName.c_str());
+
+		size_t iDrawn = 0;
+		for (auto& tValue : pSection->m_vValues)
+		{
+			if (iDrawn++ == DEBUG_SECTION_MAX)
+			{
+				H::Draw.StringOutlined(fFont, x + H::Draw.Scale(6), y += nTall, Vars::Menu::Theme::Inactive.Value, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT,
+					std::format("+{} more", pSection->m_vValues.size() - DEBUG_SECTION_MAX).c_str());
+				break;
+			}
+
+			H::Draw.StringOutlined(fFont, x + H::Draw.Scale(6), y += nTall, tValue.m_tColor, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT,
+				std::format("{}: {}", tValue.m_sKey, tValue.m_sValue).c_str());
+		}
+	}
+}
 
 #ifdef DEBUG_TEXT
+void CDebug::DrawText()
+{
+	const auto& fFont = H::Fonts.GetFont(FONT_INDICATORS);
+	const int nTall = fFont.m_nTall + H::Draw.Scale(1);
+	const int x = H::Draw.Scale(8);
+	int y = H::Draw.Scale(6);
+
+	for (auto& [uType, vDebugText] : m_mDebugText)
+	{
+		for (auto it = vDebugText.begin(); it != vDebugText.end();)
+		{
+			if (it->m_flTime && it->m_flTime < I::GlobalVars->curtime)
+				it = vDebugText.erase(it);
+			else
+				++it;
+		}
+		if (vDebugText.empty())
+		{
+			m_mDebugText.erase(uType);
+			continue;
+		}
+		for (auto& [sString, flTime, vPosition2D, vPosition3D, tColor] : vDebugText)
+		{
+			if (vPosition3D)
+			{
+				if (Vec3 vScreen; SDK::W2S(*vPosition3D, vScreen))
+					H::Draw.StringOutlined(fFont, vScreen.x, vScreen.y, tColor, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, sString.c_str());
+			}
+			else if (vPosition2D)
+				H::Draw.StringOutlined(fFont, vPosition2D->x, vPosition2D->y, tColor, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, sString.c_str());
+			else
+				H::Draw.StringOutlined(fFont, x, y += nTall, tColor, Vars::Menu::Theme::Background.Value, ALIGN_TOPLEFT, sString.c_str());
+		}
+	}
+}
+
 const std::map<int, std::vector<DebugText_t>>& CDebug::GetText()
 {
 	return m_mDebugText;

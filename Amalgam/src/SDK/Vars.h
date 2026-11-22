@@ -293,6 +293,7 @@ NAMESPACE_BEGIN(Vars)
 				VA_LIST("Tapfire", "Wait for headshot", "Wait for charge", "Scoped only", "Auto scope", "Auto rev minigun", "Extinguish team"),
 				Tapfire = 1 << 0, WaitForHeadshot = 1 << 1, WaitForCharge = 1 << 2, ScopedOnly = 1 << 3, AutoScope = 1 << 4, AutoRev = 1 << 5, ExtinguishTeam = 1 << 6);
 			CVar(MultipointScale, "Multipoint scale", 0.f, SLIDER_CLAMP | SLIDER_PRECISION, 0.f, 100.f, 5.f, "%g%%");
+			CVar(RollAngles, "Roll angles", true);
 			CVar(TapfireDistance, "Tapfire distance", 1000.f, SLIDER_MIN | SLIDER_PRECISION, 250.f, 1000.f, 50.f);
 			CVar(Extrapolate, "Extrapolate", false);
 
@@ -432,6 +433,8 @@ NAMESPACE_BEGIN(Vars)
 		CVar(AvoidRandomCrits, "Avoid random crits", false);
 		CVar(AlwaysMeleeCrit, "Always melee crit", false);
 		CVar(CritEffects, "Crit effects", false);
+		CVar(NoPillRotation, "No pill rotation", false);
+		CVarValues(PillCritPriority, "On crit", 0, NONE, nullptr, "No rotation", "Prefer crit");
 	NAMESPACE_END(CritHack)
 
 	NAMESPACE_BEGIN(Backtrack)

@@ -98,6 +98,22 @@ namespace Math
 		}
 	}
 
+	inline void VectorVectors(const Vec3& vForward, Vec3& vRight, Vec3& vUp)
+	{
+		if (fabsf(vForward.x) < 1e-6f && fabsf(vForward.y) < 1e-6f)
+		{
+			vRight = { 0.f, -1.f, 0.f };
+			vUp = { -vForward.z, 0.f, 0.f };
+			return;
+		}
+
+		vRight = Vec3(vForward.y, -vForward.x, 0.f).Normalized();
+		vUp = Vec3(
+			vRight.y * vForward.z - vRight.z * vForward.y,
+			vRight.z * vForward.x - vRight.x * vForward.z,
+			vRight.x * vForward.y - vRight.y * vForward.x).Normalized();
+	}
+
 	inline Vec3 CalcAngle(const Vec3& vFrom, const Vec3& vTo, bool bClamp = true)
 	{
 		Vec3 vDelta = vFrom - vTo;

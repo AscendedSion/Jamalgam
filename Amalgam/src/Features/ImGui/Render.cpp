@@ -1,5 +1,5 @@
 #include "Render.h"
-
+#include "Fonts/minecraft.h"
 #include "../../Hooks/Direct3DDevice9.h"
 #include <ImGui/imgui_impl_win32.h>
 #include "Fonts/MaterialDesign/MaterialIcons.h"
@@ -89,16 +89,17 @@ void CRender::LoadFonts()
 	ImFontConfig tFontConfig;
 	tFontConfig.OversampleH = 2;
 #ifndef AMALGAM_CUSTOM_FONTS
-	FontSmall = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\tahoma.ttf)", H::Draw.Scale(11), &tFontConfig);
-	FontRegular = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\tahoma.ttf)", H::Draw.Scale(13), &tFontConfig);
-	FontBold = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\tahomabd.ttf)", H::Draw.Scale(13), &tFontConfig);
-	FontLarge = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\tahoma.ttf)", H::Draw.Scale(14), &tFontConfig);
+
+	FontSmall = io.Fonts->AddFontFromMemoryCompressedTTF(rawData, rawdatasize, H::Draw.Scale(12), &tFontConfig);
+	FontRegular = io.Fonts->AddFontFromMemoryCompressedTTF(rawData, rawdatasize, H::Draw.Scale(13), &tFontConfig);
+	FontBold = io.Fonts->AddFontFromMemoryCompressedTTF(rawData, rawdatasize, H::Draw.Scale(13), &tFontConfig);
+	FontLarge = io.Fonts->AddFontFromMemoryCompressedTTF(rawData, rawdatasize, H::Draw.Scale(14), &tFontConfig);
 	FontMono = io.Fonts->AddFontFromFileTTF(R"(C:\Windows\Fonts\cour.ttf)", H::Draw.Scale(16), &tFontConfig); // windows mono font installed by default
 #else
-	FontSmall = io.Fonts->AddFontFromMemoryCompressedTTF(RobotoMedium_compressed_data, RobotoMedium_compressed_size, H::Draw.Scale(12), &tFontConfig);
-	FontRegular = io.Fonts->AddFontFromMemoryCompressedTTF(RobotoMedium_compressed_data, RobotoMedium_compressed_size, H::Draw.Scale(13), &tFontConfig);
-	FontBold = io.Fonts->AddFontFromMemoryCompressedTTF(RobotoBlack_compressed_data, RobotoBlack_compressed_size, H::Draw.Scale(13), &tFontConfig);
-	FontLarge = io.Fonts->AddFontFromMemoryCompressedTTF(RobotoMedium_compressed_data, RobotoMedium_compressed_size, H::Draw.Scale(15), &tFontConfig);
+	FontSmall = io.Fonts->AddFontFromMemoryTTF(rawData, rawdatasize, H::Draw.Scale(13), &tFontConfig);
+	FontRegular = io.Fonts->AddFontFromMemoryTTF(rawData, rawdatasize, H::Draw.Scale(14), &tFontConfig);
+	FontBold = io.Fonts->AddFontFromMemoryTTF(rawData, rawdatasize, H::Draw.Scale(14), &tFontConfig);
+	FontLarge = io.Fonts->AddFontFromMemoryTTF(rawData, rawdatasize, H::Draw.Scale(15), &tFontConfig);
 	FontMono = io.Fonts->AddFontFromMemoryCompressedTTF(CascadiaMono_compressed_data, CascadiaMono_compressed_size, H::Draw.Scale(15), &tFontConfig);
 #endif
 

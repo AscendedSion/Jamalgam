@@ -57,7 +57,7 @@ MAKE_HOOK(IEngineVGui_Paint, U::Memory.GetVirtual(I::EngineVGui, 14), void,
 			F::Debug.Draw(pLocal);
 #endif 
 		}
-		H::Draw.StringOutlined(H::Fonts.GetFont(FONT_ESP_SMALL), 20, 60, { 240, 240, 240, 255 }, { 0,0,0,255 }, ALIGN_TOPLEFT, "JAMALGAM FOR TEAM FORTRESS 2 X64 | RELEASE_AVX2");
+		H::Draw.StringOutlined(H::Fonts.GetFont(FONT_ESP_SMALL), 20, 600, { 240, 240, 240, 255 }, { 0,0,0,255 }, ALIGN_TOPLEFT, "JAMALGAM FOR TEAM FORTRESS 2 X64");
 		H::Draw.End();
 	}
 

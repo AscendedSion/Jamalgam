@@ -59,6 +59,7 @@ public:
 	bool m_bShifting = false;
 	bool m_bShifted = false;
 
+
 	int m_iWait = 0;
 	int m_iMaxUsrCmdProcessTicks = 24;
 	int m_iMaxShift = 24;

@@ -173,6 +173,10 @@ void ImGui::TextEx(const char* text, const char* text_end, ImGuiTextFlags flags)
     if (text_end == NULL)
         text_end = text + ImStrlen(text); // FIXME-OPT
 
+    // SHADOW: tweak these to taste (alpha is multiplied by style.Alpha automatically, so disabled/faded text gets a faded shadow too)
+    const ImVec2 shadow_offset(1.0f, 1.0f);
+    const ImVec4 shadow_col(0.0f, 0.0f, 0.0f, 0.6f);
+
     const ImVec2 text_pos(window->DC.CursorPos.x, window->DC.CursorPos.y + window->DC.CurrLineTextBaseOffset);
     const float wrap_pos_x = window->DC.TextWrapPos;
     const bool wrap_enabled = (wrap_pos_x >= 0.0f);
@@ -186,6 +190,11 @@ void ImGui::TextEx(const char* text, const char* text_end, ImGuiTextFlags flags)
         ItemSize(text_size, 0.0f);
         if (!ItemAdd(bb, 0))
             return;
+
+        // SHADOW: draw the shadow first, offset, in the shadow color
+        PushStyleColor(ImGuiCol_Text, shadow_col);
+        RenderTextWrapped(bb.Min + shadow_offset, text_begin, text_end, wrap_width);
+        PopStyleColor();
 
         // Render (we don't hide text after ## in this end-user function)
         RenderTextWrapped(bb.Min, text_begin, text_end, wrap_width);
@@ -236,6 +245,12 @@ void ImGui::TextEx(const char* text, const char* text_end, ImGuiTextFlags flags)
                 if (!line_end)
                     line_end = text_end;
                 text_size.x = ImMax(text_size.x, CalcTextSize(line, line_end).x);
+
+                // SHADOW: shadow for this line, then the real text on top
+                PushStyleColor(ImGuiCol_Text, shadow_col);
+                RenderText(pos + shadow_offset, line, line_end, false);
+                PopStyleColor();
+
                 RenderText(pos, line, line_end, false);
                 line = line_end + 1;
                 line_rect.Min.y += line_height;
